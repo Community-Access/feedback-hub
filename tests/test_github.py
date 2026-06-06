@@ -36,7 +36,7 @@ def test_build_payload_title_format():
         "category": "Bug Report",
         "summary": "Crash on startup",
         "message": "It crashes",
-        "version": "2.0.0",
+        "version": "1.0.0",
         "platform": "Windows 11",
     }
     cfg = GitHubConfig(token="t", repo="org/repo", labels=["bug"])

@@ -26,7 +26,6 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/community-access/feedback-hub"
-Documentation = "https://community-access.github.io/feedback-hub"
 Repository = "https://github.com/community-access/feedback-hub"
 Issues = "https://github.com/community-access/feedback-hub/issues"
 

@@ -11,7 +11,7 @@ Minimal schema example::
 
     {
         "app": "ChapterForge",
-        "version": "2.0.0",
+        "version": "1.0.0",
         "github_repo": "BITS-ACB/chapterforge",
         "github_labels": ["bug", "needs-triage"],
         "categories": ["Bug Report", "Feature Request", "Accessibility Issue", "Other"],

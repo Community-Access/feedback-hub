@@ -33,6 +33,6 @@ gh release create v1.0.0 --repo Community-Access/feedback-hub \
 
 This triggers `publish.yml`, which builds the package and uploads it to PyPI. The package will be live at https://pypi.org/project/feedback-hub/ within a minute or two.
 
-## Step 5 - Fix ChapterForge CI
+## Step 5 - ChapterForge CI
 
-Once it's on PyPI, the existing `requirements.txt` entry (`feedback-hub>=1.0`) works as-is and CI will pass.
+With feedback-hub published to PyPI, the existing `requirements.txt` entry (`feedback-hub>=1.0`) resolves correctly and CI passes without any changes needed on the ChapterForge side.

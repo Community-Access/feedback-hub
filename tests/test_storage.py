@@ -8,7 +8,7 @@ def test_save_and_retrieve(tmp_path):
     db = tmp_path / "feedback.db"
     entry = {
         "app": "ChapterForge",
-        "version": "2.0.0",
+        "version": "1.0.0",
         "platform": "Windows 11",
         "category": "Bug Report",
         "name": "Shane",
