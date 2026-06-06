@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "feedback-hub"
+version = "1.0.0"
+description = "Multi-framework GitHub issue submission library - native UI per framework, centralized GitHub backend"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Blind Information Technology Solutions (BITS)", email = "info@chapterforge.org" }
+]
+requires-python = ">=3.10"
+dependencies = []   # zero hard dependencies - wx and flask are optional
+
+[project.optional-dependencies]
+flask = ["flask>=3.0"]
+wx = ["wxPython>=4.2"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "flask>=3.0",
+    "hatch",
+]
+
+[project.urls]
+Homepage = "https://github.com/community-access/feedback-hub"
+Documentation = "https://community-access.github.io/feedback-hub"
+Repository = "https://github.com/community-access/feedback-hub"
+Issues = "https://github.com/community-access/feedback-hub/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/feedback_hub"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

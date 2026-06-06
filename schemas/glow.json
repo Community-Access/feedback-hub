@@ -1,0 +1,52 @@
+{
+    "app": "GLOW",
+    "github_repo": "Community-Access/support",
+    "github_labels": ["needs-triage"],
+    "github_assignee": "",
+    "categories": [
+        "Bug Report",
+        "Feature Request",
+        "Accessibility Issue",
+        "Document Conversion",
+        "Braille",
+        "Documentation",
+        "Other"
+    ],
+    "fields": [
+        {
+            "name": "summary",
+            "label": "Summary",
+            "type": "text",
+            "required": true,
+            "max_length": 120
+        },
+        {
+            "name": "message",
+            "label": "Details",
+            "type": "textarea",
+            "required": true,
+            "max_length": 5000
+        },
+        {
+            "name": "task",
+            "label": "What were you trying to do",
+            "type": "text",
+            "required": false,
+            "max_length": 240
+        },
+        {
+            "name": "version",
+            "label": "GLOW version",
+            "type": "text",
+            "required": false,
+            "default": "__app_version__"
+        },
+        {
+            "name": "platform",
+            "label": "Browser / OS",
+            "type": "text",
+            "required": false,
+            "default": "__platform__"
+        }
+    ]
+}

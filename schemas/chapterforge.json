@@ -1,0 +1,67 @@
+{
+    "app": "ChapterForge",
+    "github_repo": "BITS-ACB/chapterforge",
+    "github_labels": ["bug", "needs-triage"],
+    "github_assignee": "",
+    "categories": [
+        "Bug Report",
+        "Feature Request",
+        "Accessibility Issue",
+        "Documentation",
+        "Other"
+    ],
+    "fields": [
+        {
+            "name": "summary",
+            "label": "Summary",
+            "type": "text",
+            "required": true,
+            "max_length": 120,
+            "placeholder": "Brief description of the issue"
+        },
+        {
+            "name": "message",
+            "label": "What happened",
+            "type": "textarea",
+            "required": true,
+            "max_length": 5000,
+            "placeholder": "Describe the issue in detail"
+        },
+        {
+            "name": "expected",
+            "label": "What you expected",
+            "type": "textarea",
+            "required": false,
+            "max_length": 2000
+        },
+        {
+            "name": "steps",
+            "label": "Steps to reproduce",
+            "type": "textarea",
+            "required": false,
+            "max_length": 2000,
+            "placeholder": "1. Open folder...\n2. Click Build..."
+        },
+        {
+            "name": "version",
+            "label": "ChapterForge version",
+            "type": "text",
+            "required": false,
+            "default": "__app_version__"
+        },
+        {
+            "name": "platform",
+            "label": "Operating system",
+            "type": "text",
+            "required": false,
+            "default": "__platform__"
+        },
+        {
+            "name": "screenreader",
+            "label": "Screen reader (if any)",
+            "type": "text",
+            "required": false,
+            "placeholder": "e.g. NVDA 2024.1, JAWS, or None"
+        }
+    ]
+}
