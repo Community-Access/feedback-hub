@@ -2,6 +2,15 @@
 
 All notable changes to feedback-hub are documented here.
 
+## [1.0.1] - 2026-07-03
+
+### Fixed
+- `FeedbackDialog` crashed on construction under wxPython 4.2.5+ with a C++
+  sizer assertion: the Submit Issue and Cancel buttons were parented to the
+  dialog while their `StdDialogButtonSizer` was set on the inner panel.
+  Host apps that caught the exception (QUILL) silently fell back to their
+  legacy reporting flow; the buttons are now children of the panel.
+
 ## [1.0.0] - 2026-06-06
 
 Initial public release.

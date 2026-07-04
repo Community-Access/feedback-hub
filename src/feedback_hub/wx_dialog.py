@@ -133,10 +133,12 @@ class FeedbackDialog:
             root.Add(ctrl, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 8)
             self._field_controls[f.name] = ctrl
 
-        # Buttons
+        # Buttons. Parent them on the panel: their sizer is set on the panel,
+        # and wxPython (>= 4.2.5 asserts on this) requires sizer-managed
+        # windows to be children of the sizer's associated window.
         buttons = wx.StdDialogButtonSizer()
-        self._submit_btn = wx.Button(dlg, wx.ID_OK, label="Submit Issue")
-        cancel_btn = wx.Button(dlg, wx.ID_CANCEL, label="Cancel")
+        self._submit_btn = wx.Button(panel, wx.ID_OK, label="Submit Issue")
+        cancel_btn = wx.Button(panel, wx.ID_CANCEL, label="Cancel")
         buttons.AddButton(self._submit_btn)
         buttons.AddButton(cancel_btn)
         buttons.Realize()

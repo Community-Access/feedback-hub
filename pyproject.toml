@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "feedback-hub"
-version = "1.0.0"
+version = "1.0.1"
 description = "Multi-framework GitHub issue submission library - native UI per framework, centralized GitHub backend"
 readme = "README.md"
 license = { file = "LICENSE" }
