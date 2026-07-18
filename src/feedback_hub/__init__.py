@@ -36,7 +36,7 @@ from feedback_hub._github import GitHubConfig, resolve_token
 from feedback_hub._schema import AppSchema, FieldSchema, build_entry, load_schema
 from feedback_hub._storage import list_all, save
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 
 __all__ = [
     "AppSchema",

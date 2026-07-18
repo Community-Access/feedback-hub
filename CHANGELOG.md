@@ -2,6 +2,13 @@
 
 All notable changes to feedback-hub are documented here.
 
+## [1.0.2] - 2026-07-17
+
+### Changed
+
+- The default form's short field is now labelled **Title** (was "Summary") and the long field **Description** (was "Details"), so users understand the short field is the issue title and the long field is where the full report goes -- the "Summary caps at 120 characters, I can't paste a description" confusion (Community-Access/quill#1102). The title's length cap is raised to 200 characters, and the GitHub issue-title truncation matches, so a slightly longer title survives while the full detail always lands in the issue body.
+- Fixed `__version__` in `feedback_hub/__init__.py`, which had drifted to 1.0.0 while `pyproject.toml` read 1.0.1; both now read 1.0.2.
+
 ## [1.0.1] - 2026-07-03
 
 ### Fixed

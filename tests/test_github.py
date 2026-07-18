@@ -60,6 +60,24 @@ def test_build_payload_includes_extra_fields():
     assert "1. Open app" in payload["body"]
 
 
+def test_build_payload_title_bounded_at_200_and_body_keeps_full_detail():
+    # Community-Access/quill#1102: the Title is the (bounded) issue title; the
+    # Description/message carries the full report in the body, untruncated.
+    long_summary = "x" * 500
+    long_message = "y" * 4000
+    entry = {
+        "app": "Quill",
+        "category": "Bug Report",
+        "summary": long_summary,
+        "message": long_message,
+    }
+    cfg = GitHubConfig(token="t", repo="org/repo")
+    payload = _build_payload(entry, cfg)
+    assert payload["title"].endswith("x" * 200)
+    assert "x" * 201 not in payload["title"]
+    assert long_message in payload["body"]
+
+
 def test_build_payload_includes_submitter_info():
     entry = {
         "app": "ChapterForge",

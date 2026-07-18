@@ -102,8 +102,8 @@ def make_blueprint(
         github_assignee=github_assignee,
         categories=_categories,
         fields=[
-            FieldSchema("summary", "Summary", "text", required=True, max_length=120),
-            FieldSchema("message", "Details", "textarea", required=True, max_length=5000),
+            FieldSchema("summary", "Title", "text", required=True, max_length=200),
+            FieldSchema("message", "Description", "textarea", required=True, max_length=5000),
             *(
                 FieldSchema(
                     f["name"],

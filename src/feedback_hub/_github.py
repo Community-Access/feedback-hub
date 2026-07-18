@@ -87,7 +87,10 @@ def create_issue(
 def _build_payload(entry: dict[str, object], cfg: GitHubConfig) -> dict[str, object]:
     app = str(entry.get("app", "Unknown")).strip()
     category = str(entry.get("category", "feedback")).strip().lower()
-    summary = str(entry.get("summary") or entry.get("message", ""))[:120].strip()
+    # The "summary" field is the issue title; the "message"/Description field
+    # carries the full detail in the body (below). Titles are bounded so a
+    # pasted paragraph can't become a runaway GitHub title (#1102).
+    summary = str(entry.get("summary") or entry.get("message", ""))[:200].strip()
     title = f"[{app}] {category}: {summary}"
 
     lines = [

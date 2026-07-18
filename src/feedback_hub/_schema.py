@@ -16,8 +16,8 @@ Minimal schema example::
         "github_labels": ["bug", "needs-triage"],
         "categories": ["Bug Report", "Feature Request", "Accessibility Issue", "Other"],
         "fields": [
-            {"name": "summary",  "label": "Summary",          "type": "text",     "required": true,  "max_length": 120},
-            {"name": "message",  "label": "What happened",    "type": "textarea", "required": true,  "max_length": 5000},
+            {"name": "summary",  "label": "Title",            "type": "text",     "required": true,  "max_length": 200},
+            {"name": "message",  "label": "Description",      "type": "textarea", "required": true,  "max_length": 5000},
             {"name": "expected", "label": "What you expected","type": "textarea", "required": false},
             {"name": "steps",    "label": "Steps to reproduce","type": "textarea","required": false},
             {"name": "version",  "label": "App version",      "type": "text",     "required": false, "default": "__app_version__"},
