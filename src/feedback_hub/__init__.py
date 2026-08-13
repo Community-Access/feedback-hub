@@ -32,17 +32,23 @@ Quick start (headless / CLI)::
         category="Bug Report",
     )
 """
+from feedback_hub._fingerprint import (
+    compute_fingerprint,
+    fingerprint_from_traceback,
+)
 from feedback_hub._github import GitHubConfig, resolve_token
 from feedback_hub._schema import AppSchema, FieldSchema, build_entry, load_schema
 from feedback_hub._storage import list_all, save
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 __all__ = [
     "AppSchema",
     "FieldSchema",
     "GitHubConfig",
     "build_entry",
+    "compute_fingerprint",
+    "fingerprint_from_traceback",
     "list_all",
     "load_schema",
     "resolve_token",
@@ -66,10 +72,23 @@ def submit(
     github_assignee: str = "",
     metadata: dict | None = None,
     db_path=None,
+    fingerprint: str = "",
+    version_label: bool = False,
 ) -> tuple:
     """Headless submission -- no UI required.
 
     Returns ``(issue_url, error_message)``.
+
+    ``fingerprint`` deduplicates: when an open issue already carries it, this
+    comments there and returns that issue's URL instead of filing a new one.
+    Compute one with :func:`feedback_hub.compute_fingerprint` (from a live
+    exception) or :func:`feedback_hub.fingerprint_from_traceback` (from saved
+    traceback text). An empty fingerprint means "do not deduplicate" -- never
+    pass a placeholder, or unrelated reports collapse onto one issue.
+
+    ``version_label`` adds a ``reported-version: X`` label, so "is this
+    already fixed?" is answerable from the issue list rather than by reading
+    each body.
     """
     from datetime import UTC, datetime
     from pathlib import Path
@@ -89,6 +108,8 @@ def submit(
         "message": message,
         "metadata": metadata,
         "timestamp": datetime.now(UTC).isoformat(),
+        "fingerprint": fingerprint,
+        "version_label": version_label,
     }
 
     _db = db_path or Path.home() / ".local" / "share" / "feedback-hub" / "feedback.db"

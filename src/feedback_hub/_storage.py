@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     message             TEXT    NOT NULL,
     extra_fields_json   TEXT,
     metadata_json       TEXT,
+    fingerprint         TEXT,
     github_issue_number INTEGER,
     github_issue_url    TEXT,
     github_sync_status  TEXT,
@@ -47,6 +48,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "summary": "TEXT",
         "extra_fields_json": "TEXT",
         "metadata_json": "TEXT",
+        # Added in 1.1.0. Existing databases gain the column here rather than
+        # being migrated or recreated, so an older install keeps its history.
+        "fingerprint": "TEXT",
         "github_issue_number": "INTEGER",
         "github_issue_url": "TEXT",
         "github_sync_status": "TEXT",
@@ -75,8 +79,8 @@ def save(entry: dict[str, object], db_path: Path) -> int:
     cur = conn.execute(
         """INSERT INTO feedback
            (timestamp, app, version, platform, category, name, email,
-            summary, message, extra_fields_json, metadata_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            summary, message, extra_fields_json, metadata_json, fingerprint)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             str(entry.get("timestamp", datetime.now(UTC).isoformat())),
             str(entry.get("app", "")),
@@ -89,6 +93,7 @@ def save(entry: dict[str, object], db_path: Path) -> int:
             str(entry.get("message", "")),
             json.dumps(extra, sort_keys=True) if isinstance(extra, dict) else "",
             json.dumps(metadata, sort_keys=True) if isinstance(metadata, dict) else "",
+            str(entry.get("fingerprint", "")),
         ),
     )
     row_id = int(cur.lastrowid)

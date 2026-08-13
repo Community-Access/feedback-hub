@@ -109,6 +109,54 @@ This replaces the clipboard+browser approach with direct GitHub submission.
 
 ---
 
+## Crash reports: deduplicate them (1.1.0)
+
+If your app files issues automatically from a crash handler, pass a
+`fingerprint` and feedback-hub will comment on the open issue for that crash
+instead of filing another one.
+
+From a live exception, in an `excepthook`:
+
+```python
+import traceback
+from feedback_hub import compute_fingerprint, submit
+
+def handler(exc_type, exc_value, exc_tb):
+    frames = [(f.filename, f.name) for f in traceback.extract_tb(exc_tb)]
+    issue_url, error = submit(
+        app="MyApp",
+        github_repo="org/repo",
+        github_token=TOKEN,
+        summary=f"{exc_type.__name__}: {exc_value}",
+        message=build_report(),          # your redacted body
+        app_version=__version__,
+        fingerprint=compute_fingerprint(exc_type.__name__, frames),
+        version_label=True,              # adds `reported-version: X`
+    )
+```
+
+From a traceback you saved earlier — a `crash-*.txt` written by a previous
+session, say — use `fingerprint_from_traceback(text)` instead. **The two agree**
+for the same crash, so a report filed live and one filed later from the saved
+file deduplicate against each other rather than becoming two issues.
+
+Three rules worth knowing:
+
+- **An empty fingerprint means "do not deduplicate"** and files normally. Never
+  pass a placeholder or a constant — unrelated reports would collapse onto one
+  issue, which is much worse than duplicates.
+- **`fingerprint_from_traceback` returns `""` when it finds no frames.** Log
+  text is not a stable identity. Treat empty as "file this one normally".
+- **Dedup never loses a report.** Any failure in the lookup falls through to
+  creating a new issue.
+
+What the fingerprint deliberately ignores, so the same defect matches itself:
+line numbers (they shift on every release), the exception message (it embeds
+per-user values), and absolute paths (they carry usernames and frozen-build
+layout).
+
+---
+
 ## Token Security Notes
 
 **Fine-grained PATs with issues:write only are safe to bundle in desktop apps.**
