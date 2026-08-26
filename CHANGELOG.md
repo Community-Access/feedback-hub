@@ -2,6 +2,72 @@
 
 All notable changes to feedback-hub are documented here.
 
+## [1.3.0] - 2026-08-26
+
+### Added
+
+- **`POST /submit/feedback`, so no app has to carry a GitHub token.** The
+  server already held the credential for Community Picks; it now accepts an
+  ordinary report as well, from any client, and files the issue itself.
+
+  This is the fix for a real exposure rather than a theoretical one. Every
+  QUILL build compiles a fine-grained token into its installer, so anybody who
+  unzips one has it. Scoping it to issues on a single repository bounds the
+  damage to issue spam, which is why it has been tolerable -- but an app that
+  posts to the server needs no credential at all, and the token can then be
+  rotated by editing one file on one machine instead of by shipping a release
+  to every installed copy and waiting for people to take it.
+
+- **`server_url=` on `submit()` and on `FeedbackDialog`.** Set it and leave
+  `github_token` empty. The dialog is otherwise untouched -- same fields, same
+  button, same words -- because only the transport changed, and a person
+  reporting a problem should not be able to tell that anything moved.
+
+  When both are configured the server wins: a token sitting alongside a server
+  URL is one somebody forgot to remove.
+
+- **`feedback_hub._relay`** -- the client half. It returns the same
+  `(number, url, error)` triple as `create_issue`, so a caller can swap one for
+  the other without knowing which it has, and it returns every failure rather
+  than raising: a report that cannot be sent has still been saved locally, and
+  an exception there would turn "we could not send this" into a crash in the
+  middle of somebody reporting a crash.
+
+### Notes
+
+- **The seam matters more than the token.** Once submission is a POST to a URL,
+  *where a report ends up stops being the app's business*. Moving Report a Bug
+  from a GitHub issue to a support conversation in a help desk becomes a change
+  on the server -- no release, no version skew, and no installed copy left
+  behind still filing into the wrong place. That is the migration this unlocks;
+  GitHub is simply what is behind the endpoint today.
+
+- **Reports arrive already triaged by product.** The app name maps to a
+  `product:*` label and the category to a `type:*` label, from the taxonomy in
+  the Community Access support plan, plus `source:app`. One shared repository
+  serves all seven QUILL applications, so product identity is a label rather
+  than a repository, and applying it at the door means nobody types it later.
+
+- **The app name is an allowlist, not free text.** It becomes a label and a
+  title prefix in a public repository; an endpoint that accepts any app name
+  accepts any junk, permanently. Same reasoning as the picks endpoint's shape
+  check.
+
+- **Crash deduplication survives the move.** The `fingerprint` and
+  `version_label` fields are relayed intact, so the second person to hit a
+  crash still lands on the first person's issue.
+
+- **A separate, kinder rate limit.** Four a minute and forty a day, against the
+  picks endpoint's one and twenty. Somebody reporting a crash may legitimately
+  send two in a minute, and turning that away teaches them the button does not
+  work. Sharing one limiter would also have meant a crash report consuming the
+  suggestion budget of everybody behind the same address.
+
+- **No CORS handling on this endpoint, deliberately.** It is reached by desktop
+  applications, which send no `Origin`. A browser allowlist here would advertise
+  a protection that is not present; what is present is the app allowlist, the
+  size caps and the rate limit.
+
 ## [1.2.0] - 2026-08-26
 
 ### Added

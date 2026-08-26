@@ -74,6 +74,7 @@ def submit(
     db_path=None,
     fingerprint: str = "",
     version_label: bool = False,
+    server_url: str = "",
 ) -> tuple:
     """Headless submission -- no UI required.
 
@@ -89,6 +90,16 @@ def submit(
     ``version_label`` adds a ``reported-version: X`` label, so "is this
     already fixed?" is answerable from the issue list rather than by reading
     each body.
+
+    ``server_url`` submits through a feedback-hub server instead of calling
+    GitHub, and is the preferred transport: the caller then needs **no token at
+    all**. A desktop app that carries one is carrying it inside its installer,
+    where anybody who unzips it can read it. Set this and leave
+    ``github_token`` empty.
+
+    It also decides where reports go *later*: once submission is a POST to a
+    URL, moving from GitHub issues to a help desk is a change on the server
+    rather than a release to every installed copy.
     """
     from datetime import UTC, datetime
     from pathlib import Path
@@ -118,16 +129,23 @@ def submit(
     except Exception:
         row_id = None
 
-    if not token:
-        return None, "GitHub token not configured"
+    if server_url:
+        # The server holds the credential, so this path needs none. Checked
+        # first: when both are configured the server wins, because the token is
+        # then only a fallback somebody forgot to remove.
+        from feedback_hub._relay import relay_entry
 
-    cfg = GitHubConfig(
-        token=token,
-        repo=github_repo,
-        assignee=github_assignee,
-        labels=github_labels or ["needs-triage"],
-    )
-    number, url, error = create_issue(entry, cfg)
+        number, url, error = relay_entry(server_url, entry)
+    elif not token:
+        return None, "GitHub token not configured"
+    else:
+        cfg = GitHubConfig(
+            token=token,
+            repo=github_repo,
+            assignee=github_assignee,
+            labels=github_labels or ["needs-triage"],
+        )
+        number, url, error = create_issue(entry, cfg)
 
     if row_id is not None:
         try:

@@ -79,7 +79,7 @@ from typing import Any, Callable, Iterable
 from urllib import parse as urlparse
 from urllib import request as urlrequest
 
-from feedback_hub._github import GitHubConfig, create_raw_issue, resolve_token
+from feedback_hub._github import GitHubConfig, create_issue, create_raw_issue, resolve_token
 
 #: The fence that marks the machine-readable block inside a suggestion body.
 #: It has to match ``quill.core.pick_suggestion`` exactly, because
@@ -117,6 +117,27 @@ class ServerConfig:
     per_day: int = 20
     client_ip_header: str = "X-Forwarded-For"
     turnstile_secret: str = ""
+    #: The generic report endpoint. Its whole purpose is to hold the GitHub
+    #: token so that no installed app has to: today every QUILL build compiles
+    #: one in, which means anybody who unzips an installer has it.
+    feedback_path: str = "/submit/feedback"
+    #: Apps allowed to file through it. An allowlist rather than free text
+    #: because the value becomes a label and a title prefix, and because an
+    #: endpoint that accepts any app name accepts any junk.
+    feedback_apps: tuple[str, ...] = (
+        "QUILL",
+        "Quill Radio",
+        "QUILL Cast",
+        "Quill Weather",
+        "Quill Social",
+        "Quill Beacon",
+        "QUILL Audio Studio",
+    )
+    #: Kinder than the picks limit: a person reporting a crash may legitimately
+    #: send two in a minute, and turning that away teaches them the button does
+    #: not work.
+    feedback_per_minute: int = 4
+    feedback_per_day: int = 40
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "ServerConfig":
@@ -136,6 +157,19 @@ class ServerConfig:
             per_day=_int(source.get("PICKS_PER_DAY"), 20),
             client_ip_header=source.get("PICKS_CLIENT_IP_HEADER", "X-Forwarded-For").strip(),
             turnstile_secret=source.get("TURNSTILE_SECRET", "").strip(),
+            feedback_path=source.get("FEEDBACK_PATH", "/submit/feedback").strip()
+            or "/submit/feedback",
+            feedback_apps=tuple(
+                name.strip()
+                for name in source.get(
+                    "FEEDBACK_APPS",
+                    "QUILL,Quill Radio,QUILL Cast,Quill Weather,Quill Social,"
+                    "Quill Beacon,QUILL Audio Studio",
+                ).split(",")
+                if name.strip()
+            ),
+            feedback_per_minute=_int(source.get("FEEDBACK_PER_MINUTE"), 4),
+            feedback_per_day=_int(source.get("FEEDBACK_PER_DAY"), 40),
         )
 
 
@@ -263,6 +297,99 @@ def validate_suggestion(title: str, body: str) -> None:
         raise _Rejected(400, "the address has a space in it")
 
 
+#: App name -> the product label from the FreeScout/GitHub integration plan.
+#: One shared repository serves all seven applications, so product identity is
+#: a label rather than a repository, and applying it here means every report
+#: arrives already triaged by product without an agent typing anything.
+_PRODUCT_LABELS = {
+    "quill": "product:quill",
+    "quill radio": "product:radio",
+    "quill cast": "product:cast",
+    "quill weather": "product:weather",
+    "quill social": "product:social",
+    "quill beacon": "product:beacon",
+    "quill audio studio": "product:audio-studio",
+}
+
+#: Report kind -> the engineering type label. Anything unrecognised simply gets
+#: no type label; guessing one would be worse than leaving it for a person.
+_TYPE_LABELS = {
+    "bug report": "type:bug",
+    "bug": "type:bug",
+    "crash": "type:bug",
+    "feature request": "type:feature",
+    "feature": "type:feature",
+    "accessibility": "type:accessibility",
+    "documentation": "type:documentation",
+}
+
+_MAX_FIELD = 200
+_MAX_MESSAGE = 20_000
+
+
+def validate_entry(entry: Any, allowed_apps: tuple[str, ...]) -> dict[str, Any]:
+    """Check a relayed report and return the parts worth keeping.
+
+    Everything here arrives from an installed application over an endpoint
+    anybody can reach, so it is treated exactly as hostile as the web form is.
+    The app name is checked against an allowlist rather than trusted, because
+    it becomes a label and a title prefix -- an endpoint that accepts any app
+    name accepts any junk, permanently, in a public repository.
+    """
+    if not isinstance(entry, dict):
+        raise _Rejected(400, "that report is not in the expected shape")
+
+    app = str(entry.get("app", "")).strip()
+    if app.lower() not in {name.lower() for name in allowed_apps}:
+        raise _Rejected(400, "that application is not one this server files for")
+
+    message = str(entry.get("message", "")).strip()
+    if not message:
+        raise _Rejected(400, "a description is required")
+    if len(message) > _MAX_MESSAGE:
+        raise _Rejected(400, "that report is longer than this form accepts")
+
+    clean: dict[str, Any] = {
+        "app": app,
+        "message": message,
+        "summary": str(entry.get("summary", "")).strip()[:_MAX_FIELD],
+        "category": str(entry.get("category", "")).strip()[:_MAX_FIELD] or "feedback",
+        "version": str(entry.get("version", "")).strip()[:_MAX_FIELD],
+        "platform": str(entry.get("platform", "")).strip()[:_MAX_FIELD],
+        "name": str(entry.get("name", "")).strip()[:_MAX_FIELD],
+        "email": str(entry.get("email", "")).strip()[:_MAX_FIELD],
+        "timestamp": str(entry.get("timestamp", "")).strip()[:_MAX_FIELD],
+        # Passed through so crash deduplication keeps working: the second
+        # person to hit a crash still lands on the first person's issue.
+        "fingerprint": str(entry.get("fingerprint", "")).strip()[:_MAX_FIELD],
+        "version_label": bool(entry.get("version_label")),
+    }
+
+    extra = entry.get("extra_fields") or entry.get("metadata")
+    if isinstance(extra, dict):
+        # Bounded in both directions. A report is a paragraph and some
+        # environment detail, not an arbitrary document store.
+        clean["extra_fields"] = {
+            str(key)[:_MAX_FIELD]: str(value)[:_MAX_MESSAGE]
+            for key, value in list(extra.items())[:40]
+        }
+    return clean
+
+
+def labels_for(entry: dict[str, Any], base: list[str]) -> list[str]:
+    """The labels a relayed report should carry."""
+    labels = list(base)
+    product = _PRODUCT_LABELS.get(str(entry.get("app", "")).strip().lower())
+    if product:
+        labels.append(product)
+    kind = _TYPE_LABELS.get(str(entry.get("category", "")).strip().lower())
+    if kind:
+        labels.append(kind)
+    # Order-preserving de-duplication, so a caller passing a label the mapping
+    # also produces does not get it twice.
+    return list(dict.fromkeys(labels))
+
+
 def _verify_turnstile(token: str, secret: str, remote_ip: str) -> bool:
     """Ask Cloudflare whether the challenge token is good. Failure means no."""
     if not token:
@@ -300,6 +427,7 @@ def create_app(
     config: ServerConfig | None = None,
     *,
     submit: Callable[..., tuple[Any, Any, Any]] | None = None,
+    report: Callable[..., tuple[Any, Any, Any]] | None = None,
 ) -> Callable[[dict[str, Any], Callable[..., Any]], Iterable[bytes]]:
     """Build the WSGI application.
 
@@ -308,7 +436,13 @@ def create_app(
     """
     settings = config or ServerConfig.from_env()
     limiter = RateLimiter(settings.per_minute, settings.per_day)
+    # A limiter of its own, not the picks one. Sharing it would mean a person
+    # reporting a crash used up the suggestion budget of everybody behind the
+    # same address, and the two have genuinely different shapes: one suggestion
+    # a minute is generous, one crash report a minute is not.
+    feedback_limiter = RateLimiter(settings.feedback_per_minute, settings.feedback_per_day)
     file_issue = submit or create_raw_issue
+    file_report = report or create_issue
 
     def application(environ, start_response):  # noqa: ANN001, ANN202
         method = environ.get("REQUEST_METHOD", "GET").upper()
@@ -320,6 +454,10 @@ def create_app(
             # Deliberately says nothing about the token: a health check is read
             # by monitoring, and by anyone who finds the URL.
             return _reply(start_response, 200, {"ok": True}, headers)
+        if path.rstrip("/") == settings.feedback_path.rstrip("/"):
+            return _handle_feedback(
+                environ, start_response, method, headers, settings, feedback_limiter, file_report
+            )
         if path.rstrip("/") != settings.path.rstrip("/"):
             return _reply(start_response, 404, {"error": "no such endpoint"}, headers)
         if method == "OPTIONS":
@@ -367,6 +505,53 @@ def create_app(
         return _reply(start_response, 200, {"ok": True, "number": number, "url": url}, headers)
 
     return application
+
+
+def _handle_feedback(environ, start_response, method, headers, settings, limiter, file_report):  # noqa: ANN001, ANN201
+    """``POST /submit/feedback`` -- the endpoint that lets apps stop carrying a token.
+
+    Every QUILL build currently compiles a GitHub token into the installer, so
+    anybody who unzips one has it. Scoping it to issues on a single repository
+    bounds the damage to issue spam, which is why it has been tolerable -- but
+    an app that posts here needs no credential at all, and the token can then be
+    rotated by editing one file on one machine instead of by shipping a release
+    to every installed copy and waiting for people to take it.
+
+    No CORS handling and no Origin check, unlike the picks endpoint. This is
+    reached by desktop applications, which send no ``Origin``; adding a browser
+    allowlist here would suggest a protection that is not present. The
+    protections that *are* present are the app allowlist, the size caps and the
+    rate limit.
+    """
+    if method == "OPTIONS":
+        return _reply(start_response, 204, None, headers)
+    if method != "POST":
+        return _reply(start_response, 405, {"error": "POST only"}, headers)
+
+    try:
+        payload = _read_json(environ)
+        entry = validate_entry(payload.get("entry"), settings.feedback_apps)
+
+        address = client_address(environ, settings.client_ip_header)
+        if not limiter.allow(address):
+            raise _Rejected(429, "too many reports have come from here just now; try again shortly")
+    except _Rejected as rejection:
+        return _reply(start_response, rejection.status, {"error": rejection.message}, headers)
+
+    labels = labels_for(entry, ["needs-triage", "source:app"])
+    number, url, error = file_report(
+        entry,
+        GitHubConfig(token=settings.token, repo=settings.repo, labels=labels),
+    )
+    if error:
+        # The reporter is told the truth without being shown GitHub's error,
+        # which can carry rate-limit details and token hints they could do
+        # nothing with. The app has already saved the report locally.
+        print(f"feedback-hub: GitHub refused a report: {error}", flush=True)
+        return _reply(
+            start_response, 502, {"error": "GitHub would not accept it just now"}, headers
+        )
+    return _reply(start_response, 200, {"ok": True, "number": number, "url": url}, headers)
 
 
 def _cors_headers(origin: str, allowed: tuple[str, ...]) -> list[tuple[str, str]]:

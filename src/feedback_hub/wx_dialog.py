@@ -39,6 +39,7 @@ class FeedbackDialog:
         github_token: str = "",
         db_path: Optional[Path] = None,
         app_version: str = "",
+        server_url: str = "",
     ) -> None:
         import wx
 
@@ -51,6 +52,10 @@ class FeedbackDialog:
             else Path.home() / ".local" / "share" / schema.app.lower() / "feedback.db"
         )
         self._token = resolve_token(github_token)
+        # Preferred over the token: with a server URL the app ships no
+        # credential at all. Nothing about the dialog changes -- same fields,
+        # same button, same words -- only where the finished report is sent.
+        self._server_url = server_url.strip()
         self._dialog = wx.Dialog(
             parent,
             title=f"Report an Issue - {schema.app}",
@@ -196,7 +201,16 @@ class FeedbackDialog:
         except Exception:
             row_id = None
 
-        # Submit to GitHub
+        # Submit: through the server when one is configured, else with the
+        # bundled token. The server wins when both are set, because a token
+        # alongside a server URL is one somebody forgot to remove.
+        if self._server_url:
+            from feedback_hub._relay import relay_entry
+
+            issue_number, issue_url, error = relay_entry(self._server_url, entry)
+            self._finish_submission(row_id, issue_number, issue_url, error)
+            return
+
         if not self._token:
             wx.MessageBox(
                 "Your report was saved locally but could not be submitted to GitHub - "
@@ -215,6 +229,23 @@ class FeedbackDialog:
             labels=self._schema.github_labels,
         )
         issue_number, issue_url, error = create_issue(entry, cfg)
+        self._finish_submission(row_id, issue_number, issue_url, error)
+
+    def _finish_submission(
+        self,
+        row_id: Any,
+        issue_number: Any,
+        issue_url: Any,
+        error: Any,
+    ) -> None:
+        """Record the outcome, tell the person, close the dialog.
+
+        Shared by both transports so the two cannot drift apart. What somebody
+        is told about their report must not depend on which way it happened to
+        travel -- and the failure wording especially, because that is the case
+        where they have to decide whether to do something else.
+        """
+        wx = self._wx
 
         if row_id is not None:
             try:
@@ -237,7 +268,7 @@ class FeedbackDialog:
             )
         else:
             wx.MessageBox(
-                "Your report was saved but could not be submitted to GitHub right now.\n"
+                "Your report was saved but could not be sent right now.\n"
                 "We will retry automatically on next launch.\n\n"
                 f"Error: {error}",
                 f"{self._schema.app} - Saved",
