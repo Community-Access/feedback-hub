@@ -88,8 +88,58 @@ duplicate detection, auto-reply and bounce handling, conversation reactivation.
 That logic is the reason to use FreeScout at all, and creating tickets through
 its API instead would mean reimplementing every part of it.
 
-The bridge is **not built yet**. It is the next piece of work and it depends on
-having Postmark credentials to test against.
+The bridge is **built**. Two more containers do this:
+
+| Container | Job |
+| --- | --- |
+| `helpdesk-mailbridge` | Receives the Postmark webhook, writes the raw message into a Maildir. `feedback_hub.mailbridge`, no dependencies but gunicorn. |
+| `helpdesk-imap` | Dovecot, exposing that one Maildir to FreeScout. No published ports and **not** on the shared edge network, so only the containers on this project's private network can reach it. |
+
+Generate the credentials once, then read what to paste where:
+
+```bash
+cd ~/feedback-hub/deploy/helpdesk
+./make-credentials.sh
+```
+
+It prints the webhook URL for Postmark and the IMAP settings for FreeScout. It
+is idempotent and refuses to overwrite a value that is already set, because
+regenerating the webhook credential breaks inbound mail until the URL in
+Postmark is changed to match — and mail that stops arriving is the hardest kind
+of failure to notice.
+
+### What the bridge does and does not do
+
+It is a **delivery adapter, not a second help desk**. It writes the raw RFC-822
+message out byte for byte and never parses it, rewrites a header, strips quoted
+text, or touches `Message-ID`, `In-Reply-To` or `References`. Everything that
+looks like mail handling — threading, duplicate detection, customer-versus-agent
+replies, attachments, auto-replies, bounces, reactivating a closed conversation
+— is FreeScout's, which is the entire reason for feeding it real email.
+
+Three behaviours worth knowing before reading its logs:
+
+- **A retry is answered 200 and writes nothing.** Postmark retries up to ten
+  times over about ten and a half hours whenever it does not get a 200, so the
+  bridge is idempotent on Postmark's `MessageID`, falling back to a hash of the
+  message. The Maildir filename is derived from that hash, so even a crash
+  between the write and the database update cannot produce a second copy.
+- **Status codes are instructions to Postmark.** `403` stops it retrying and is
+  used only for a recipient this bridge does not serve. Everything an
+  administrator could fix — a missing `RawEmail`, a full disk, an unwritable
+  mailbox — is a `5xx`, so the retry lands once it is fixed. A `4xx` there would
+  discard the message before anybody noticed.
+- **Spam is scored, logged, and delivered anyway.** Postmark's SpamAssassin
+  verdict is recorded and acted on by nobody. A support inbox for accessibility
+  work is full of long quoted threads, unusual markup and assistive-technology
+  jargon — the shapes a filter mistrusts — so agents mark spam by hand until
+  there is evidence for a threshold.
+
+The audit trail is a SQLite file in the `bridge-state` volume. It records the
+Postmark MessageID, the Maildir filename, the spam score and the **length** of
+the subject rather than the subject itself: an administrator reads this table,
+and message content belongs in the help desk where access is controlled, not in
+a second store that would also have to be secured and backed up.
 
 ---
 

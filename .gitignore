@@ -13,3 +13,4 @@ build/
 deploy/.env
 deploy/helpdesk/.env
 deploy/helpdesk/freescout.env
+deploy/helpdesk/dovecot-users

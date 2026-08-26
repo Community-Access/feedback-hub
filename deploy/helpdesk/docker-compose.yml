@@ -173,11 +173,102 @@ services:
         max-file: "5"
         tag: "helpdesk-app/{{.Name}}"
 
+  # ------------------------------------------------------------------ inbound
+  # Postmark has no IMAP and FreeScout wants one, so these two turn a webhook
+  # into a mailbox. The bridge writes the raw RFC-822 message into a Maildir;
+  # Dovecot exposes that Maildir; FreeScout fetches it in its ordinary way and
+  # does its own threading, which is the whole reason for the shape.
+
+  mailbridge:
+    build:
+      # The repository root: the image installs feedback_hub from it.
+      context: ../..
+      dockerfile: deploy/helpdesk/Dockerfile.mailbridge
+    image: feedback-hub-mailbridge:latest
+    # Caddy targets this name: reverse_proxy helpdesk-mailbridge:8096
+    container_name: helpdesk-mailbridge
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MAILBRIDGE_RECIPIENTS: ${MAILBRIDGE_RECIPIENTS:-support@community-access.org}
+      MAILBRIDGE_MAILDIR: /maildir
+      MAILBRIDGE_STATE_DB: /state/inbound.sqlite3
+      MAILBRIDGE_PATH: ${MAILBRIDGE_PATH:-/postmark/inbound}
+      # Caddy appends the real peer to any X-Forwarded-For the caller sent, and
+      # the bridge reads the LAST entry. See MAILBRIDGE_TRUSTED_IPS in
+      # .env.example before switching that check on.
+      MAILBRIDGE_CLIENT_IP_HEADER: X-Forwarded-For
+    volumes:
+      - maildir:/maildir
+      - bridge-state:/state
+    expose:
+      - "8096"
+    healthcheck:
+      # Needs no credentials and reveals nothing -- see the module's /health.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8096/health',timeout=5).status==200 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      # Both: web_default so Caddy can reach the webhook, default so it shares
+      # the Maildir volume's world with Dovecot. It reaches no database and no
+      # other application.
+      - default
+      - web_default
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "helpdesk-mailbridge/{{.Name}}"
+
+  imap:
+    image: dovecot/dovecot:2.3-latest
+    container_name: helpdesk-imap
+    restart: unless-stopped
+    volumes:
+      - maildir:/maildir
+      - ./dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ./dovecot-users:/etc/dovecot/users:ro
+    # No ports published and NOT on web_default. The plan asks for
+    # `listen = 127.0.0.1`; this is the stronger container equivalent -- the
+    # service is reachable only from the two containers on this project's
+    # private network, not from the host and not from the shared edge network
+    # the other four applications sit on.
+    expose:
+      - "143"
+    healthcheck:
+      test: ["CMD-SHELL", "doveadm service status imap-login >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    mem_limit: 192m
+    cpus: 0.5
+    networks:
+      - default
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "helpdesk-imap/{{.Name}}"
+
 volumes:
   db-data:
   app-data:
   app-config:
   app-logs:
+  # Shared by the bridge (writer) and Dovecot (reader). Maildir delivery is a
+  # rename, so writing while Dovecot reads the same directory is safe by
+  # design -- that is what Maildir is for.
+  maildir:
+  # The bridge's dedup and audit store. Small, and the thing that stops a
+  # Postmark retry becoming a second ticket, so it is worth backing up.
+  bridge-state:
 
 networks:
   # This project's own private network, for app <-> db.

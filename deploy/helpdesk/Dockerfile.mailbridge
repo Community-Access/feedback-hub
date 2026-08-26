@@ -1,0 +1,47 @@
+# The Postmark-to-Maildir bridge.
+#
+# Built from the feedback-hub repository root:
+#   docker compose -f deploy/helpdesk/docker-compose.yml build mailbridge
+#
+FROM python:3.13-slim
+
+# Only gunicorn is added. The bridge is a plain WSGI callable on the standard
+# library -- no framework, no database driver, no mail library -- which is what
+# keeps the dependency surface of a public webhook endpoint down to one thing
+# that has to be watched for advisories.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HOME=/tmp
+
+WORKDIR /app
+
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+RUN pip install --no-cache-dir . "gunicorn>=21.2"
+
+# uid 1000, matching Dovecot's mail_uid, because both write and read the same
+# Maildir over a shared volume. Not root: this process accepts anonymous input
+# from the public internet and has no business owning anything.
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin bridge
+USER 1000:1000
+
+EXPOSE 8096
+
+# Two workers. One means a slow disk blocks the next webhook, and Postmark's
+# retry schedule then does the rest. More than a handful is pointless: the work
+# is a write and an fsync, and every worker is another SQLite writer contending
+# for the same file.
+#
+# --timeout is generous on purpose. Killing a worker mid-fsync is exactly the
+# crash the delivery logic is written to survive, but surviving it still costs
+# Postmark a retry, so do not invite it.
+CMD ["gunicorn", \
+     "--bind", "0.0.0.0:8096", \
+     "--workers", "2", \
+     "--threads", "4", \
+     "--timeout", "120", \
+     "--graceful-timeout", "30", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "feedback_hub.mailbridge:application"]
