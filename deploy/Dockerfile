@@ -24,6 +24,12 @@ RUN pip install --no-cache-dir . "gunicorn>=21.2"
 
 # Runs as nobody. A process whose entire job is to accept anonymous input from
 # the public internet has no business owning anything on the filesystem.
+#
+# HOME is set because nobody's home directory is /nonexistent, and gunicorn's
+# control server tries to open a socket under it -- logging a permission error
+# on every boot. Harmless, but a recurring ERROR in the log is how a real one
+# gets missed.
+ENV HOME=/tmp
 USER 65534:65534
 
 EXPOSE 8095
