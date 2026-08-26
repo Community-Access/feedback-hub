@@ -11,3 +11,5 @@ build/
 # is the committed copy and never carries a real value.
 .env
 deploy/.env
+deploy/helpdesk/.env
+deploy/helpdesk/freescout.env

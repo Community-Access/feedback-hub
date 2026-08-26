@@ -1,0 +1,169 @@
+# FreeScout help desk -- SHARED-HOST deployment.
+#
+# For lp.csedesigns.com ("bishoplink"), which already runs the GLOW stack, the
+# ADP app, Ask BITS and the feedback-hub submission server. `web-caddy-1` owns
+# :80 and :443 and is the public TLS edge on the `web_default` docker network.
+#
+# Everything is a container on purpose. `jeffbis` is in the `docker` group but
+# has **no passwordless sudo**, so anything needing root waits for a person.
+# A container stack needs no root at all: FreeScout, its PHP, its nginx and its
+# database all live here, and the only thing outside is the Caddy route.
+#
+#   cd ~/helpdesk
+#   cp .env.example .env      # then fill it in
+#   docker compose up -d
+#
+# Capped, like everything else on the box. On an 11 GB host now running five
+# applications, an uncapped container is a site-wide outage waiting to happen.
+
+name: helpdesk
+
+services:
+  db:
+    # MariaDB rather than MySQL because FreeScout targets it and the LTS line
+    # gets security fixes for years without a major-version migration.
+    image: mariadb:11.4
+    container_name: helpdesk-db
+    restart: unless-stopped
+    command: >
+      --innodb-buffer-pool-size=192M
+      --max-connections=50
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD must be set}
+      MARIADB_DATABASE: freescout
+      MARIADB_USER: freescout
+      MARIADB_PASSWORD: ${DB_PASS:?DB_PASS must be set}
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - db-data:/var/lib/mysql
+    # No ports. The database is reachable only from this compose network, and
+    # deliberately NOT from web_default -- the shared edge network has three
+    # other applications on it and none of them has any business here.
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "helpdesk-db/{{.Name}}"
+
+  app:
+    # Pinned by digest, not :latest. This image installs FreeScout on first
+    # boot and can migrate a database on any boot; "whatever was on the hub the
+    # day someone ran docker compose pull" is not an input a help desk should
+    # have. Update deliberately -- see README.md, "Updating".
+    image: tiredofit/freescout@sha256:07734b3730a6858009ccbc03f71bb6655747a64001c67e888ad19efd051afad9
+    # Caddy targets this name: reverse_proxy helpdesk-app:80
+    container_name: helpdesk-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TIMEZONE: ${TIMEZONE:-America/Los_Angeles}
+      APPLICATION_NAME: ${APPLICATION_NAME:-Community Access Support}
+
+      # "mariadb" and "mysql" both normalise to the literal "mariadb" inside
+      # this image, which then writes DB_CONNECTION=mariadb into FreeScout's
+      # .env -- a connection Laravel 5.5 does not define. See fix-db-driver.sh,
+      # which repairs it, and README.md, which explains why the symptom is an
+      # endless redirect to install.php rather than a database error.
+      DB_TYPE: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: freescout
+      DB_USER: freescout
+
+      # Caddy terminates TLS and speaks plain http to this container. Without
+      # this, FreeScout builds every absolute URL as http:// -- so the login
+      # POST leaves an https page for an http one, the browser refuses it as
+      # mixed content, and sign-in fails with no error anyone can act on.
+      ENABLE_SSL_PROXY: "TRUE"
+
+      # Off. This image can pull a new FreeScout on boot; an unattended upgrade
+      # of a help desk is how a Monday morning starts badly. Updates are a
+      # deliberate `docker compose pull` -- see README.md.
+      ENABLE_AUTO_UPDATE: "FALSE"
+      APP_DISABLE_UPDATING: "TRUE"
+
+      # The bundled Zabbix agent has nothing to report to here.
+      CONTAINER_ENABLE_MONITORING: "FALSE"
+
+      # Scheduling stays ON: FreeScout's cron is what fetches mail, sends
+      # queued replies and runs its maintenance. A help desk with the scheduler
+      # off looks like a help desk where nobody answers.
+      CONTAINER_ENABLE_SCHEDULING: "TRUE"
+    volumes:
+      # The application's own configuration, bind-mounted from the host so that
+      # it is AUTHORITATIVE rather than generated.
+      #
+      # This image writes .env itself and stamps it "upon container restart any
+      # settings will reset". A plain restart does preserve it; a *recreate* --
+      # which is what `docker compose up -d` does after any change to this file,
+      # and what every image update does -- copies the FreeScout source over the
+      # top, replaces the symlink into /data with a fresh file, and takes the
+      # first-install path again.
+      #
+      # That path writes an EMPTY APP_KEY. FreeScout encrypts stored mailbox
+      # passwords with APP_KEY, so a rotated key does not merely log everyone
+      # out: the saved Postmark credentials become undecryptable and inbound
+      # mail stops, at a moment that looks unrelated to whatever was updated.
+      # It also rewrites DB_CONNECTION back to the broken value (see DB_TYPE).
+      #
+      # With a real file mounted here, the init script finds APP_URL present and
+      # takes its update path instead, which touches only the handful of keys it
+      # manages and leaves APP_KEY and DB_CONNECTION alone.
+      #
+      # Owned by uid 80 (the container's nginx), mode 600. jeffbis cannot read
+      # it directly and does not need to -- see README.md, "Reading the config".
+      - ./freescout.env:/www/html/.env
+      - app-data:/data
+      - app-config:/www/html/.env.d
+      - app-logs:/www/logs
+    # No ports published. Caddy reaches this over web_default by container name.
+    expose:
+      - "80"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    mem_limit: 1g
+    cpus: 2.0
+    networks:
+      - default
+      - web_default
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "helpdesk-app/{{.Name}}"
+
+volumes:
+  db-data:
+  app-data:
+  app-config:
+  app-logs:
+
+networks:
+  # This project's own private network, for app <-> db.
+  default:
+  # The existing shared edge network. `external: true` means we join it and
+  # never create or modify it -- bringing this project down does not touch the
+  # network the other four applications depend on.
+  web_default:
+    external: true
