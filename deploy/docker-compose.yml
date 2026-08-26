@@ -1,0 +1,75 @@
+# feedback-hub submission server -- SHARED-HOST deployment.
+#
+# For lp.csedesigns.com ("bishoplink"), which already runs the GLOW stack, the
+# ADP app and Ask BITS. `web-caddy-1` owns :80 and :443 and is the public TLS
+# edge on the `web_default` docker network.
+#
+# This follows the pattern the other two shared-host apps use: bring up ONLY
+# this service, join the existing edge network, publish no host ports. The
+# shared Caddy reverse-proxies a path to `feedback-hub-submit:8095` over that
+# network -- see caddy-snippet.conf beside this file.
+#
+#   cd ~/feedback-hub
+#   cp deploy/.env.example deploy/.env     # then put the token in it
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Capped, like everything else on the box. On an 11 GB host running four
+# applications, an uncapped container is a site-wide outage waiting to happen.
+
+name: feedback-hub
+
+services:
+  submit:
+    build:
+      # The whole repository, because the image installs the package from it.
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: feedback-hub-submit:latest
+    # Caddy targets this name: reverse_proxy feedback-hub-submit:8095
+    container_name: feedback-hub-submit
+    restart: unless-stopped
+    # The token lives here and nowhere else. Never in the image, never in the
+    # compose file, never in the repository -- deploy/.env is gitignored and
+    # deploy/.env.example is the only copy that is committed.
+    env_file: .env
+    environment:
+      # Everything below is a default made explicit, so `docker inspect` shows
+      # what this endpoint actually does without anyone reading the source.
+      PICKS_REPO: ${PICKS_REPO:-Community-Access/quill}
+      PICKS_LABEL: ${PICKS_LABEL:-pick:suggestion}
+      PICKS_PATH: ${PICKS_PATH:-/submit/picks}
+      PICKS_ALLOWED_ORIGINS: ${PICKS_ALLOWED_ORIGINS:-https://quillforall.org}
+      PICKS_PER_MINUTE: ${PICKS_PER_MINUTE:-1}
+      PICKS_PER_DAY: ${PICKS_PER_DAY:-20}
+      # Caddy appends the real peer to any X-Forwarded-For the client sent, and
+      # the server reads the LAST entry. Blanking this would rate-limit every
+      # visitor as one address, because the socket peer is always Caddy.
+      PICKS_CLIENT_IP_HEADER: X-Forwarded-For
+    # No ports published. Caddy reaches this over web_default by container name.
+    expose:
+      - "8095"
+    healthcheck:
+      # /healthz deliberately says nothing about the token, so a green light
+      # here means the process is answering and nothing more.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8095/healthz',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    mem_limit: 192m
+    cpus: 0.5
+    networks:
+      - web_default
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "feedback-hub-submit/{{.Name}}"
+
+networks:
+  # The existing shared edge network. `external: true` means we join it and
+  # never create or modify it -- bringing this project down does not touch the
+  # network the other three applications depend on.
+  web_default:
+    external: true

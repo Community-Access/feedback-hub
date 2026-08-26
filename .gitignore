@@ -6,3 +6,8 @@ dist/
 build/
 .pytest_cache/
 *.db
+
+# The deployment's GitHub token lives in deploy/.env. deploy/.env.example
+# is the committed copy and never carries a real value.
+.env
+deploy/.env

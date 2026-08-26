@@ -2,6 +2,87 @@
 
 All notable changes to feedback-hub are documented here.
 
+## [1.2.0] - 2026-08-26
+
+### Added
+
+- **A server, so that nobody needs a GitHub account.** `feedback_hub.server`
+  is a zero-dependency WSGI application that accepts a submission over HTTP and
+  files the issue itself, holding the only token.
+
+  Until now "centralized GitHub backend" meant *GitHub is the backend* and
+  every client carried its own token. That is fine on a desktop, where the
+  worst case is issue spam in one repo. It is impossible on a web page: a token
+  in a public page is extracted, and GitHub's own secret scanning revokes it
+  within minutes, rightly. So a static site could only hand the visitor to
+  GitHub's own new-issue form -- and that final press needs an account.
+
+  `https://quillforall.org/picks/suggest/` is the first client. Anyone can now
+  suggest a radio station for QUILL's Community Picks list without signing in
+  to anything.
+
+  It solves a second problem on the way. The bundled, issues-only token ships
+  inside every QUILL installer, so anyone who unzips one can extract it. Once
+  submission goes through a server, apps can stop carrying a credential at all,
+  and the token can be rotated without shipping a release.
+
+- **`create_raw_issue()`** in `feedback_hub._github`. `create_issue()` renders
+  an entry into feedback-hub's own report layout, which would destroy a
+  Community Picks suggestion: its body carries a machine-readable block that a
+  downstream workflow parses. `create_raw_issue()` files a title and body
+  verbatim. It lives with the other GitHub calls so every request in the
+  package still goes out through one place -- one set of headers, one timeout,
+  one error shape.
+
+- **`deploy/`** -- Dockerfile, a compose service that joins an existing shared
+  Caddy edge network, the Caddy snippet, and the runbook. See
+  [deploy/README.md](deploy/README.md).
+
+### Notes
+
+- **Scope is deliberately one endpoint.** `POST /submit/picks` serves Community
+  Picks and nothing else. Report a Bug still submits directly from each app,
+  because migrating it at the same time would make the first deployment also
+  the riskiest one. The shape is the one those clients move to later: same
+  process, more endpoints.
+
+- **What the endpoint refuses**, and why each refusal has a test rather than a
+  comment: a body with no ```` ```json pick ```` block (such an issue looks
+  fine in the review queue and publishes *nothing* when approved, so the
+  failure would surface days later as "why is my station not in the list?");
+  two such blocks, which is ambiguity a person should resolve; a kind that is
+  not `stream` or `podcast`; a missing name or address; an address whose scheme
+  is not the web; a request over 32 KB.
+
+- **`http://` addresses are accepted on purpose.** 41% of the 400 most-played
+  stations in the directory Quill Radio browses are http-only, among them the
+  small community stations the catalogue exists for. An https-only rule written
+  to protect listeners would have quietly excluded exactly them. The protection
+  belongs where it helps: the catalogue itself arrives over https and signed.
+  Still refused everywhere: `javascript:`, `file:`, `data:` -- which is also how
+  an attacker would try to get script onto the review page that displays these.
+
+- **The rate limit reads the last `X-Forwarded-For` entry, not the first.** A
+  client can send a forwarded header of its own and the proxy appends to it, so
+  the first entry is whatever the client claimed. Reading the first would make
+  the limit evadable by anyone who read the source. A *refused* attempt is not
+  counted, so being over the minute limit cannot push somebody over the day
+  limit for retrying.
+
+- **On spam control, once and permanently: Turnstile, never reCAPTCHA.**
+  Turnstile is usually invisible and needs no puzzle. reCAPTCHA's image grids
+  are precisely the barrier this project exists to remove -- a spam control that
+  locks out blind users to keep out bots has failed at the only job that
+  matters here. Written into the module docstring rather than a wiki because it
+  is the kind of decision that gets made hastily at 2am.
+
+### Changed
+
+- `pytest` now puts `src/` on the path, so the suite tests the checkout rather
+  than whatever happens to be installed in site-packages. Without it a source
+  tree with a new module tests green against the last release and red the
+  moment anybody else runs it.
+
 ## [1.1.0] - 2026-08-13
 
 ### Added

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "feedback-hub"
-version = "1.1.0"
+version = "1.2.0"
 description = "Multi-framework GitHub issue submission library - native UI per framework, centralized GitHub backend"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -34,3 +34,7 @@ packages = ["src/feedback_hub"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Test the checkout, not whatever happens to be installed in site-packages.
+# Without this a source tree with a new module tests green against the last
+# release and red the moment anyone else runs it.
+pythonpath = ["src"]

@@ -157,6 +157,105 @@ layout).
 
 ---
 
+## Static sites and anything else with no place to hide a token (1.2.0)
+
+A web page cannot hold a GitHub token. Not "should not" -- cannot: the page is
+readable by everyone, so the token is extractable by everyone, and GitHub's own
+secret scanning revokes a published one within minutes. A static site could
+therefore only ever hand the visitor to GitHub's pre-filled new-issue form, and
+that final press needs a GitHub account.
+
+`feedback_hub.server` is the piece that removes the account. It is a
+zero-dependency WSGI application: one process, holding the only token, in front
+of which any number of accountless clients can stand.
+
+### 1. Run it
+
+```bash
+FEEDBACK_HUB_GITHUB_TOKEN=github_pat_... python -m feedback_hub.server
+# in production, behind a proxy that terminates TLS:
+gunicorn --bind 127.0.0.1:8095 feedback_hub.server:application
+```
+
+See [deploy/README.md](deploy/README.md) for a container, a Caddy route and the
+runbook. Configuration is entirely by environment variable -- the full list is
+in the module docstring -- because the token must never live in a file inside an
+image.
+
+### 2. Post to it from the page
+
+```js
+fetch("https://lp.csedesigns.com/submit/picks", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ title: title, body: body })
+})
+  .then(function (response) { return response.json().then(function (data) {
+    if (response.ok) { /* data.number is the issue number */ }
+    else { /* data.error is plain English, safe to show */ }
+  }); });
+```
+
+The response is always JSON. `200` carries `{ok, number, url}`; a refusal
+carries `{error}` in words a visitor can act on, and never GitHub's own error
+text -- that can include rate-limit details and token hints they could do
+nothing with.
+
+### 3. Two things that will catch you out
+
+**The page's own Content-Security-Policy.** A `default-src 'none'` policy with
+no `connect-src` blocks the `fetch` before it leaves the browser, and the
+failure looks exactly like the server being down. Add the endpoint's origin:
+
+```html
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self';
+               connect-src https://lp.csedesigns.com; form-action 'none'; base-uri 'none'">
+```
+
+**CORS is a list, not a wildcard.** `PICKS_ALLOWED_ORIGINS` must name the site
+posting to it. A disallowed origin is refused request-side as well as
+response-side, so an unwanted origin never files an issue at all.
+
+### 4. What it refuses, and why that is the useful part
+
+The endpoint validates before it files anything. The refusal that earns its
+keep is a body missing the machine-readable block the downstream workflow
+parses: such an issue looks fine in the review queue and publishes *nothing*
+when approved, so the failure would otherwise surface days later as "why is my
+station not in the list?".
+
+Also refused: two such blocks (ambiguity a person should resolve, not a
+machine); a missing name or address; an address whose scheme is not the web, so
+`javascript:`, `file:` and `data:` are out -- which is also how an attacker would
+try to get script onto a review page that displays submissions; and anything
+over 32 KB.
+
+`http://` addresses are **accepted on purpose**. Refusing them would exclude
+exactly the small community radio stations the catalogue exists for.
+
+### 5. Rate limiting
+
+One submission a minute and twenty a day per address, counted in memory, with
+no store to administer. A *refused* attempt is not counted, so being over the
+minute limit cannot push somebody over the day limit for retrying. Behind a
+proxy the client address is the **last** `X-Forwarded-For` entry, not the
+first: a client can send a header of its own and the proxy appends to it, so
+the first entry is whatever the client claimed.
+
+The limit is per process. With N workers the effective limit is N per minute
+per address. Say so in the deployment rather than pretending otherwise.
+
+### 6. Spam challenges: Turnstile, never reCAPTCHA
+
+Set `TURNSTILE_SECRET` and every submission must carry a valid Turnstile token.
+Turnstile is usually invisible and needs no puzzle. reCAPTCHA's image grids are
+precisely the barrier this library's projects exist to remove -- a spam control
+that locks out blind users to keep out bots has failed at the only job that
+matters.
+
+---
+
 ## Token Security Notes
 
 **Fine-grained PATs with issues:write only are safe to bundle in desktop apps.**
@@ -167,6 +266,13 @@ layout).
 - Rotate annually or if compromised
 
 **Server apps (GLOW):** Token stays in `.env`, never touches clients.
+
+**The submission server (1.2.0):** same rule, and it is the direction of
+travel. Once a client posts through the server it needs no credential at all,
+and the token can be rotated by editing one `.env` and restarting -- rather than
+by shipping a release to every installed copy. A bundled token is extractable
+by anyone who unzips an installer; that is tolerable for issues-only scope, but
+it is not better than not shipping one.
 
 **Desktop apps (ChapterForge, QUILL):** Bundle a fine-grained PAT.
 ```python

@@ -340,3 +340,43 @@ def _build_payload(entry: dict[str, object], cfg: GitHubConfig) -> dict[str, obj
     if cfg.assignee:
         payload["assignees"] = [cfg.assignee]
     return payload
+
+
+def create_raw_issue(
+    *,
+    title: str,
+    body: str,
+    labels: list[str],
+    config: GitHubConfig,
+) -> tuple[Optional[int], Optional[str], Optional[str]]:
+    """File an issue with the title and body **exactly as given**.
+
+    :func:`create_issue` renders a feedback entry into feedback-hub's own
+    report layout. Some callers already know the shape the issue has to have --
+    :mod:`feedback_hub.server` relays a Community Picks suggestion whose body
+    carries a machine-readable block that a downstream workflow parses, and
+    reformatting it would break that workflow.
+
+    Kept here rather than in the caller so every GitHub request in this package
+    goes out through one place: one set of headers, one timeout, one error
+    shape. Returns ``(issue_number, issue_url, error_message)``.
+    """
+    if not config.token:
+        return None, None, "GitHub token not configured"
+    payload: dict[str, object] = {"title": title, "body": body, "labels": list(labels)}
+    if config.assignee:
+        payload["assignees"] = [config.assignee]
+    try:
+        data = _api(
+            f"https://api.github.com/repos/{config.repo}/issues",
+            config,
+            payload=payload,
+            method="POST",
+        )
+    except urlerror.HTTPError as exc:
+        return None, None, f"GitHub API error {exc.code}: {_read_error(exc)}"
+    except Exception as exc:  # noqa: BLE001
+        return None, None, f"GitHub request failed: {exc}"
+    if not isinstance(data, dict):
+        return None, None, "GitHub returned an unexpected response"
+    return data.get("number"), data.get("html_url"), None
