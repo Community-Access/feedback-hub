@@ -41,8 +41,26 @@ set_once IMAP_PASSWORD
 imap_user=$(grep -m1 '^IMAP_USER=' .env | cut -d= -f2-)
 imap_pass=$(grep -m1 '^IMAP_PASSWORD=' .env | cut -d= -f2-)
 printf '%s:%s\n' "${imap_user:-freescout-support}" "$imap_pass" > dovecot-users
-chmod 600 dovecot-users .env
-echo "dovecot-users written."
+chmod 640 dovecot-users
+chmod 600 .env
+
+# Dovecot's auth process drops to its own unprivileged user before reading this
+# file -- uid 101, gid 102 in the dovecot/dovecot image -- so a file owned by
+# whoever ran this script is one it cannot read. The failure is not obviously a
+# permissions problem from the client end: IMAP reports "Temporary
+# authentication failure" and only the container log names the real cause,
+# which is a long way to travel for a chown.
+#
+# chown needs root and this box has no passwordless sudo, so it is done from a
+# throwaway container. If the image is ever changed, confirm the ids with:
+#   docker run --rm dovecot/dovecot:2.3-latest id dovecot
+if command -v docker >/dev/null 2>&1; then
+    docker run --rm -v "$PWD":/mnt alpine chown 101:102 /mnt/dovecot-users
+    echo "dovecot-users written, owned by the dovecot auth user."
+else
+    echo "dovecot-users written -- but docker is not on PATH, so its owner was"
+    echo "not set, and Dovecot will refuse to read it. See the comment above."
+fi
 
 hook_user=$(grep -m1 '^MAILBRIDGE_WEBHOOK_USER=' .env | cut -d= -f2-)
 hook_pass=$(grep -m1 '^MAILBRIDGE_WEBHOOK_PASSWORD=' .env | cut -d= -f2-)
