@@ -190,11 +190,18 @@ services:
     # when it would be forgotten.
     image: alpine:3.20
     container_name: helpdesk-maildir-init
-    command: >
-      sh -c "mkdir -p /maildir/tmp /maildir/new /maildir/cur /state
-             && chown -R 1000:1000 /maildir /state
-             && chmod 700 /maildir
-             && echo 'maildir ready'"
+    # List form, not a folded string: compose re-splits a string command with
+    # shell-like rules of its own, which mangles the quoting around `sh -c` and
+    # produces a syntax error inside the container rather than at parse time.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /maildir/tmp /maildir/new /maildir/cur /state
+        chown -R 1000:1000 /maildir /state
+        chmod 700 /maildir
+        echo "maildir ready"
     volumes:
       - maildir:/maildir
       - bridge-state:/state
