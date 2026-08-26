@@ -179,6 +179,34 @@ services:
   # Dovecot exposes that Maildir; FreeScout fetches it in its ordinary way and
   # does its own threading, which is the whole reason for the shape.
 
+  maildir-init:
+    # A named volume is created root-owned, and both the bridge and Dovecot run
+    # as uid 1000 -- so without this the bridge cannot create Maildir/tmp and
+    # dies on its first boot with a permission error that looks like a code
+    # problem. One short-lived root container fixes the ownership once.
+    #
+    # This exists rather than a line in the runbook because the runbook tells
+    # somebody to rebuild from scratch, and a from-scratch rebuild is exactly
+    # when it would be forgotten.
+    image: alpine:3.20
+    container_name: helpdesk-maildir-init
+    command: >
+      sh -c "mkdir -p /maildir/tmp /maildir/new /maildir/cur /state
+             && chown -R 1000:1000 /maildir /state
+             && chmod 700 /maildir
+             && echo 'maildir ready'"
+    volumes:
+      - maildir:/maildir
+      - bridge-state:/state
+    restart: "no"
+    network_mode: none
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"
+        tag: "helpdesk-maildir-init/{{.Name}}"
+
   mailbridge:
     build:
       # The repository root: the image installs feedback_hub from it.
@@ -203,6 +231,9 @@ services:
       - bridge-state:/state
     expose:
       - "8096"
+    depends_on:
+      maildir-init:
+        condition: service_completed_successfully
     healthcheck:
       # Needs no credentials and reveals nothing -- see the module's /health.
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8096/health',timeout=5).status==200 else 1)"]
@@ -240,6 +271,9 @@ services:
     # the other four applications sit on.
     expose:
       - "143"
+    depends_on:
+      maildir-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "doveadm service status imap-login >/dev/null 2>&1 || exit 1"]
       interval: 60s
