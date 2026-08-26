@@ -136,8 +136,28 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:80/ || exit 1"]
-      interval: 30s
+      # The Host and X-Forwarded-Proto headers are not decoration.
+      #
+      # A bare request to http://localhost/ gets a 403: FreeScout refuses a Host
+      # that does not match its APP_URL, which is correct and defensive. With
+      # the right Host but no forwarded scheme it gets a 302, because APP_URL is
+      # https and it redirects to it. Only with both does it answer 200 -- so a
+      # naive check reports unhealthy on a perfectly working help desk, which is
+      # the kind of alert people learn to ignore.
+      #
+      # /login rather than / because it renders without a session and exercises
+      # the whole stack -- nginx, PHP, the database -- rather than just proving
+      # a port is open. It does start a session per probe, hence 60s rather than
+      # 30: Laravel garbage-collects them, but there is no reason to make 2,880
+      # a day of them.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -o /dev/null
+          -H "Host: $$(printf '%s' "$${SITE_URL}" | sed -e 's|^https\?://||' -e 's|/.*$$||')"
+          -H "X-Forwarded-Proto: https"
+          http://localhost:80/login
+      interval: 60s
       timeout: 10s
       retries: 5
       start_period: 180s
